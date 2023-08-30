@@ -1,12 +1,41 @@
 {:duct.profile/base
  {:duct.core/project-ns genqref-api
 
-  :duct.router/cascading []}
+  :duct.router/reitit
+  {:routes
+   [["/api-docs/*" {:get {:handler #ig/ref :genqref-api.handler/swagger-ui :no-doc true}}]
+    ["/swagger.json" {:get {:handler #ig/ref :genqref-api.handler/swagger :no-doc true}}]
+    ["/openapi.json" {:get {:handler #ig/ref :genqref-api.handler/openapi
+                            :openapi {:info {:title "GenqrefAPI" :version "0.0.1"}}
+                            :no-doc true}}]
+    ["/status" {:get {:handler #ig/ref :genqref-api.handler/status
+                      :description "Hello"}}]
+    ["/api/:instance" {:middleware [{:name :duct.middleware.buddy/authentication
+                                     :wrap #ig/ref :duct.middleware.buddy/authentication}]}
+     ["/:resource" {:get {:handler #ig/ref :genqref-api.handler/get-resource}
+                    :post {:handler #ig/ref :genqref-api.handler/post-resource}}]]]}
+
+  :genqref-api.handler/swagger-ui    {}
+  :genqref-api.handler/swagger       {}
+  :genqref-api.handler/openapi       {}
+  :genqref-api.handler/status        {}
+  :genqref-api.handler/get-resource  {}
+  :genqref-api.handler/post-resource {}
+
+  :duct.middleware.buddy/authentication
+  {:backend :token
+   :authfn  #ig/ref :genqref-api.buddy/token-auth}
+
+  :genqref-api.buddy/token-auth {}
+
+  }
 
  :duct.profile/dev   #duct/include "dev"
  :duct.profile/local #duct/include "local"
  :duct.profile/prod  {}
 
  :duct.module/logging {}
- :duct.module.web/api
- {}}
+ :duct.module.web/api {}
+ :duct.module/sql
+ {:database-url "jdbc:postgresql://localhost:5423/genqref?user=postgres"}
+ }

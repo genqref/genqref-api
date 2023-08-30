@@ -5,7 +5,12 @@
   :dependencies [[org.clojure/clojure "1.10.3"]
                  [duct/core "0.8.0"]
                  [duct/module.logging "0.5.0"]
-                 [duct/module.web "0.7.3"]]
+                 [duct/module.web "0.7.3"]
+                 [duct/module.sql "0.6.1"]
+                 [duct/database.sql.hikaricp "0.4.0"]
+                 [org.postgresql/postgresql "42.2.19"]
+                 [metosin/reitit "0.7.0-alpha5"]
+                 [duct/middleware.buddy "0.2.0"]]
   :plugins [[duct/lein-duct "0.12.3"]]
   :main ^:skip-aot genqref-api.main
   :resource-paths ["resources" "target/resources"]
