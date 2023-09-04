@@ -1,6 +1,8 @@
 {:duct.profile/base
  {:duct.core/project-ns genqref-api
 
+  ;; :duct.server.http/jetty {:port #duct/env "PORT"}
+
   :duct.router/reitit
   {:routes
    [["/api-docs/*" {:get {:handler #ig/ref :genqref-api.handler/swagger-ui :no-doc true}}]
@@ -10,8 +12,8 @@
                             :no-doc true}}]
     ["/status" {:get {:handler #ig/ref :genqref-api.handler/status
                       :description "Hello"}}]
-    ["/api/:instance" {:middleware [{:name :duct.middleware.buddy/authentication
-                                     :wrap #ig/ref :duct.middleware.buddy/authentication}]}
+    ["/api/:context" {:middleware [{:name :duct.middleware.buddy/authentication
+                                    :wrap #ig/ref :duct.middleware.buddy/authentication}]}
      ["/:resource" {:get {:handler #ig/ref :genqref-api.handler/get-resource}
                     :post {:handler #ig/ref :genqref-api.handler/post-resource}}]]]}
 
@@ -19,15 +21,25 @@
   :genqref-api.handler/swagger       {}
   :genqref-api.handler/openapi       {}
   :genqref-api.handler/status        {}
-  :genqref-api.handler/get-resource  {}
-  :genqref-api.handler/post-resource {}
+  :genqref-api.handler/get-resource  {:logger #ig/ref :duct/logger
+                                      :db #ig/ref :duct.database/sql}
+  :genqref-api.handler/post-resource {:logger #ig/ref :duct/logger
+                                      :db #ig/ref :duct.database/sql}
 
   :duct.middleware.buddy/authentication
   {:backend :token
    :authfn  #ig/ref :genqref-api.buddy/token-auth}
 
-  :genqref-api.buddy/token-auth {}
+  :genqref-api.buddy/token-auth {:db #ig/ref :duct.database/sql}
 
+  :duct.migrator.ragtime/resources {:path "migrations"}
+
+  :duct.migrator/ragtime
+  {:database   #ig/ref :duct.database/sql
+   :logger     #ig/ref :duct/logger
+   :strategy   :rebase
+   :migrations [#ig/ref :duct.migrator.ragtime/resources]
+   :migrations-table "ragtime_migrations"}
   }
 
  :duct.profile/dev   #duct/include "dev"
@@ -37,5 +49,5 @@
  :duct.module/logging {}
  :duct.module.web/api {}
  :duct.module/sql
- {:database-url "jdbc:postgresql://localhost:5423/genqref?user=postgres"}
+ {:database-url "jdbc:postgresql://localhost:5424/genqref?user=postgres"}
  }

@@ -1,13 +1,12 @@
 (ns genqref-api.buddy
-  (:require [integrant.core :as ig]))
+  (:require [integrant.core :as ig]
+            [genqref-api.db :as db]
+            [buddy.auth :as auth]))
 
-;; this will eventually be replaced with a db query
-(def tokens
-   {:2f904e245c1f5 :admin
-   :45c1f5e3f05d0 :foouser
-   nil :hello})
-
-(defmethod ig/init-key ::token-auth [_ options]
+;; yes, this munges authentication and authorization together, which
+;; is good for now, I guess. (But if you're a student of mine this
+;; will cost you points!)
+(defmethod ig/init-key ::token-auth [_ {:keys [db]}]
   (fn [request token]
-    (let [token (keyword token)]
-      (get tokens token nil))))
+    (or (first (db/find-callsign db token))
+        (auth/throw-unauthorized))))

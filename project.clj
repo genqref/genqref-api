@@ -10,7 +10,9 @@
                  [duct/database.sql.hikaricp "0.4.0"]
                  [org.postgresql/postgresql "42.2.19"]
                  [metosin/reitit "0.7.0-alpha5"]
-                 [duct/middleware.buddy "0.2.0"]]
+                 [duct/middleware.buddy "0.2.0"]
+                 [duct/migrator.ragtime "0.3.2"]
+                 [com.github.seancorfield/next.jdbc "1.3.883"]]
   :plugins [[duct/lein-duct "0.12.3"]]
   :main ^:skip-aot genqref-api.main
   :resource-paths ["resources" "target/resources"]

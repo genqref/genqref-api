@@ -1,15 +1,19 @@
+---
 version: '3.2'
+
 services:
   postgres:
     image: 'postgres:12-bullseye'
     expose:
       - 5432
     ports:
-      - '127.0.0.1:5423:5432'
-      - '::1:5423:5432'
+      - '127.0.0.1:5424:5432'
+      - '::1:5424:5432'
     environment:
       POSTGRES_HOST_AUTH_METHOD: trust
     #   # tell postgres to find it's data here
     #   PGDATA: ${ALEPH_PGDATA_PATH}
     # volumes:
     #   - ${ALEPH_PGDATA_PATH}:${ALEPH_PGDATA_PATH}
+    logging:
+      driver: json-file
