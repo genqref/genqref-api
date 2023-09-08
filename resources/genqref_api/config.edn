@@ -12,19 +12,44 @@
                             :no-doc true}}]
     ["/status" {:get {:handler #ig/ref :genqref-api.handler/status
                       :description "Hello"}}]
+    ["/metrics" {:get {:handler #ig/ref :genqref-api.handler/metrics
+                       :description "Hello"}}]
     ["/api/:context" {:middleware [{:name :duct.middleware.buddy/authentication
                                     :wrap #ig/ref :duct.middleware.buddy/authentication}]}
-     ["/:resource" {:get {:handler #ig/ref :genqref-api.handler/get-resource}
-                    :post {:handler #ig/ref :genqref-api.handler/post-resource}}]]]}
+     ["/observations"
+      ["/markets"      {:post {:handler #ig/ref :genqref-api.handler/post-markets
+                               :parameters {
+                                            :path [:map [:context ;;:string
+                                                         genqref-api.schema/ContextPattern
+                                                         ]]
+                                            :body ;; [:sequential [:map]]
+                                            genqref-api.schema/Markets
+                                            }
+                               :description genqref-api.describe/Markets}}]
+      ["/transactions" {:post {:handler #ig/ref :genqref-api.handler/post-transactions
+                               :parameters {:body ;;[:sequential [:map]]
+                                            genqref-api.schema/Transactions
+                                            }}}]
+      ["/ships"        {:post {:handler #ig/ref :genqref-api.handler/post-ships
+                               ;;:parameters {:body genqref-api.schema/Ships}
+                               }}]]
+     ["/ships"   {:get {:handler #ig/ref :genqref-api.handler/get-ships}}]
+     ["/markets" {:get {:handler #ig/ref :genqref-api.handler/get-markets}}]
+     ["/offers"  {:get {:handler #ig/ref :genqref-api.handler/get-offers}}]
+     ["/demands" {:get {:handler #ig/ref :genqref-api.handler/get-demands}}]]]}
 
-  :genqref-api.handler/swagger-ui    {}
-  :genqref-api.handler/swagger       {}
-  :genqref-api.handler/openapi       {}
-  :genqref-api.handler/status        {}
-  :genqref-api.handler/get-resource  {:logger #ig/ref :duct/logger
-                                      :db #ig/ref :duct.database/sql}
-  :genqref-api.handler/post-resource {:logger #ig/ref :duct/logger
-                                      :db #ig/ref :duct.database/sql}
+  :genqref-api.handler/swagger-ui        {}
+  :genqref-api.handler/swagger           {}
+  :genqref-api.handler/openapi           {}
+  :genqref-api.handler/status            {}
+  :genqref-api.handler/metrics           {:logger #ig/ref :duct/logger :db #ig/ref :duct.database/sql}
+  :genqref-api.handler/get-ships         {:logger #ig/ref :duct/logger :db #ig/ref :duct.database/sql}
+  :genqref-api.handler/get-markets       {:logger #ig/ref :duct/logger :db #ig/ref :duct.database/sql}
+  :genqref-api.handler/get-offers        {:logger #ig/ref :duct/logger :db #ig/ref :duct.database/sql}
+  :genqref-api.handler/get-demands       {:logger #ig/ref :duct/logger :db #ig/ref :duct.database/sql}
+  :genqref-api.handler/post-markets      {:logger #ig/ref :duct/logger :db #ig/ref :duct.database/sql}
+  :genqref-api.handler/post-transactions {:logger #ig/ref :duct/logger :db #ig/ref :duct.database/sql}
+  :genqref-api.handler/post-ships        {:logger #ig/ref :duct/logger :db #ig/ref :duct.database/sql}
 
   :duct.middleware.buddy/authentication
   {:backend :token

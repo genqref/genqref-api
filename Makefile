@@ -24,3 +24,7 @@ reset-db:
 
 db-console:
 	psql $(PG_OPTS) genqref
+
+dep-tree:
+	lein pom
+	mvn dependency:tree -Dverbose=true

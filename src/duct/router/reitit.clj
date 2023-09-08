@@ -1,7 +1,7 @@
 (ns duct.router.reitit
   (:require [reitit.ring :as ring]
             [reitit.ring.coercion :as ring.coercion]
-            [reitit.coercion.spec :as coercion.spec]
+            [reitit.coercion.malli]
             [duct.core.resource]
             [integrant.core :as ig]
             [clojure.walk :as walk]))
@@ -28,15 +28,15 @@
 ;; :scheme
 ;; :request-method
 
-(defn debug [handler]
-  (fn [request]
-    (doseq [mw (-> request :reitit.core/match :data :middleware)]
-      (prn mw))
-    (handler request)))
+;; (defn debug [handler]
+;;   (fn [request]
+;;     (doseq [mw (-> request :reitit.core/match :data :middleware)]
+;;       (prn mw))
+;;     (handler request)))
 
 (def default-route-opts
-  {:coercion coercion.spec/coercion
-   :middleware [{:name "debug" :wrap debug}
+  {:coercion reitit.coercion.malli/coercion
+   :middleware [;; {:name "debug" :wrap debug}
                 ring.coercion/coerce-exceptions-middleware
                 ring.coercion/coerce-request-middleware
                 ring.coercion/coerce-response-middleware]})

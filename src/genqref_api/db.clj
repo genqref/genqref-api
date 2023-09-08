@@ -4,12 +4,14 @@
             [next.jdbc.sql :as sql]
             [next.jdbc.prepare :as prepare]
             [next.jdbc.result-set :as rs]
+            [next.jdbc.sql.builder :as builder]
             [cheshire.core :as json]
-            [taoensso.timbre :as log])
+            [taoensso.timbre :as log]
+            [clojure.string :as str])
   (:import [org.postgresql.util PGobject]
            [java.sql PreparedStatement]))
 
-(def ^:dynamic *logger*)
+(def ^:dynamic *logger* nil)
 
 ;;; next.jdbc and postgres' json support
 
@@ -53,6 +55,27 @@
   (read-column-by-index [^org.postgresql.util.PGobject v _2 _3]
     (<-pgobject v)))
 
+;;; Helpers
+
+(defn query-count [db resource]
+  (sql/query db
+             [(str "SELECT context, COUNT(*) FROM "
+                   (name resource)
+                   " GROUP BY context ORDER BY context")]
+             jdbc/unqualified-snake-kebab-opts))
+
+(defn upsert [table key-map opts]
+  (let [[set-clause & set-args] (builder/by-keys key-map :set opts)
+        conflict (str "ON CONSTRAINT " (name (get opts :conflict-contraint "upsert_unique")))
+        suffix (str/join " " ["ON CONFLICT" conflict "DO UPDATE" set-clause])
+        opts (assoc opts :suffix suffix)]
+    (concat (builder/for-insert table key-map opts) set-args)))
+
+#_(upsert :table {:a "b" :c "d"} jdbc/unqualified-snake-kebab-opts)
+
+(defn upsert! [db table key-map opts]
+  (jdbc/execute! db (upsert table key-map opts) opts))
+
 ;;; Records
 
 ;; (defprotocol Users
@@ -84,21 +107,6 @@
     (sql/find-by-keys db :callsigns {:token token}
                       jdbc/unqualified-snake-kebab-opts)))
 
-(comment
-  ;; https://cljdoc.org/d/com.github.seancorfield/next.jdbc/1.3.883/doc/all-the-options
-  (def opts {:dbtype "postgresql"
-             :dbname "genqref"
-             :user "postgres"
-             :port "5424"})
-  (def db-spec (duct.database.sql/->Boundary opts))
-
-  (def callsign (create-callsign db-spec 1 "ZAPP"))
-
-  (->> callsign :token (find-callsign db-spec))
-
-  (->> callsign :token)
-  )
-
 ;; (defprotocol Agents
 ;;   (create-agent [db token payload])
 ;;   (find-agent [db token]))
@@ -115,11 +123,15 @@
 ;;                                   :callsign callsign})))
 
 (defprotocol Markets
+  (count-markets [db])
   (create-market [db context validAt createdBy payload])
   (find-markets [db context]))
 
 (extend-protocol Markets
   duct.database.sql.Boundary
+
+  (count-markets [{db :spec}]
+    (query-count db :markets))
 
   (create-market [{db :spec} context validAt createdBy payload]
     (let [db (jdbc/with-logging db #(log/info *logger* %1 %2))]
@@ -133,5 +145,132 @@
   (find-markets [{db :spec} context]
     (sql/find-by-keys db :markets {:context context}
                       jdbc/unqualified-snake-kebab-opts)))
+
+(defprotocol Transactions
+  (count-transactions [db])
+  (create-transaction [db context createdBy payload])
+  (find-transactions [db context]))
+
+(extend-protocol Transactions
+  duct.database.sql.Boundary
+
+  (count-transactions [{db :spec}]
+    (query-count db :transactions))
+
+  (create-transaction [{db :spec} context createdBy payload]
+    (sql/insert! db :transactions {:context context
+                                   :created-by createdBy
+                                   :payload payload}
+                 jdbc/unqualified-snake-kebab-opts))
+
+  (find-transactions [{db :spec} context]
+    (sql/find-by-keys db :transactions {:context context}
+                      jdbc/unqualified-snake-kebab-opts)))
+
+(defprotocol Ships
+  (count-ships [db])
+  (create-ship [db context createdBy payload])
+  (update-ship-projection [db context createdBy payload])
+  (find-ships [db context]))
+
+(extend-protocol Ships
+  duct.database.sql.Boundary
+
+  (count-ships [{db :spec}]
+    (query-count db :ships))
+
+  (create-ship [{db :spec} context createdBy payload]
+    (sql/insert! db :ships {:context context
+                            :created-by createdBy
+                            :payload payload}
+                 jdbc/unqualified-snake-kebab-opts))
+
+  (update-ship-projection [{db :spec} context createdBy payload]
+    (upsert! db :ships-projection {:context context
+                                   :created-by createdBy
+                                   :payload payload}
+             jdbc/unqualified-snake-kebab-opts))
+
+  (find-ships [{db :spec} context]
+    (sql/find-by-keys db :ships {:context context}
+                      jdbc/unqualified-snake-kebab-opts)))
+
+(comment
+  (def key-map {:a-b "c" :d "e"})
+  (builder/as-? key-map jdbc/unqualified-snake-kebab-opts) ;; => "?, ?"
+  (builder/as-cols key-map jdbc/unqualified-snake-kebab-opts) ;; => "a_b AS c, d AS e"
+  (builder/as-keys key-map jdbc/unqualified-snake-kebab-opts) ;; => "a_b, d"
+  (builder/by-keys key-map :set jdbc/unqualified-snake-kebab-opts) ;; => ["SET a_b = ?, d = ?" "c" "e"]
+  (builder/by-keys key-map :where jdbc/unqualified-snake-kebab-opts) ;; => ["WHERE a_b = ? AND d = ?" "c" "e"]
+  (builder/for-delete :table key-map jdbc/unqualified-snake-kebab-opts) ;; => ["DELETE FROM table WHERE a_b = ? AND d = ?" "c" "e"]
+  (builder/for-insert :table key-map jdbc/unqualified-snake-kebab-opts) ;; => ["INSERT INTO table (a_b, d) VALUES (?, ?)" "c" "e"]
+  (builder/for-update :table key-map {:de "e"} jdbc/unqualified-snake-kebab-opts)
+  )
+
+(defprotocol Shipyards
+  (count-shipyards [db])
+  (create-shipyard [db context createdBy payload])
+  (find-shipyards [db context]))
+
+(extend-protocol Shipyards
+  duct.database.sql.Boundary
+
+  (count-shipyards [{db :spec}]
+    (query-count db :shipyards))
+
+  (create-shipyard [{db :spec} context createdBy payload]
+    (sql/insert! db :shipyards {:context context
+                                :created-by createdBy
+                                :payload payload}
+                 jdbc/unqualified-snake-kebab-opts))
+
+  (find-shipyards [{db :spec} context]
+    (sql/find-by-keys db :shipyards {:context context}
+                      jdbc/unqualified-snake-kebab-opts)))
+
+(defprotocol Jumpgates
+  (count-jumpgates [db])
+  (create-jumpgate [db context createdBy payload])
+  (find-jumpgates [db context]))
+
+(extend-protocol Jumpgates
+  duct.database.sql.Boundary
+
+  (count-jumpgates [{db :spec}]
+    (query-count db :jumpgates))
+
+  (create-jumpgate [{db :spec} context createdBy payload]
+    (sql/insert! db :jumpgates {:context context
+                                :created-by createdBy
+                                :payload payload}
+                 jdbc/unqualified-snake-kebab-opts))
+
+  (find-jumpgates [{db :spec} context]
+    (sql/find-by-keys db :jumpgates {:context context}
+                      jdbc/unqualified-snake-kebab-opts)))
+
+(comment
+  ;; https://cljdoc.org/d/com.github.seancorfield/next.jdbc/1.3.883/doc/all-the-options
+  (def opts {:dbtype "postgresql"
+             :dbname "genqref"
+             :user "postgres"
+             :port "5424"})
+  (def db (duct.database.sql/->Boundary opts))
+
+  (def callsign (create-callsign db 1 "ZAPP"))
+
+  (->> callsign :token (find-callsign db))
+
+  (->> callsign :token)
+
+  (count-transactions db)
+
+  (sql/query opts ["SELECT context, COUNT(*) FROM markets GROUP BY context;"] jdbc/unqualified-snake-kebab-opts)
+
+  (upsert! opts :ships-projection {:context "2023"
+                                   :created-by "me"
+                                   :payload {:symbol "a"
+                                             :value "2"}} jdbc/unqualified-snake-kebab-opts)
+  )
 
 "genqref-api.db"

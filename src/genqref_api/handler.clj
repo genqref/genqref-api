@@ -5,7 +5,11 @@
             [integrant.core :as ig]
             [clojure.string :as str]
             [genqref-api.db :as db]
-            [taoensso.timbre :as log]))
+            [taoensso.timbre :as log]
+            [malli.core :as m]
+            [malli.error :as me]
+            ;;[genqref-api.schema]
+            ))
 
 (defmethod ig/init-key ::swagger-ui [_ options]
   (swagger-ui/create-swagger-ui-handler))
@@ -19,35 +23,142 @@
 (defmethod ig/init-key ::status [_ options]
   (fn [{[_] :ataraxy/result}]
     {:status 200 :body {:status "ok"}}))
-;;[::response/ok {:status "ok"}]))
 
-(def resources #{:markets :shipyards :jumpgates :ships :surveys :agents})
+(defmethod ig/init-key ::metrics [_ {:keys [db]}]
+  (fn [req]
+    (let [markets (db/count-markets db)
+          transactions (db/count-transactions db)
+          ships (db/count-ships db)]
+      {:status 200 :body {:markets markets
+                          :transactions transactions
+                          :ships ships}})))
 
-;; TODO: spec or malli markets
+(def resources #{:markets :transactions :ships :shipyards :jumpgates})
+;;(def resources #{:markets :shipyards :jumpgates :ships :surveys :agents :transactions})
+;; -> derived table: agent_stats (credits ship_count update_frequency credit_trajectory)
+;; -> derived table: trade_goods (symbol system_symbol waypoint_symbol purchase_price sell_price purchase_price_mean purchase_price_median ...)
 
-(defn valid-resource? [resource]
-  (when-not (contains? resources (keyword resource))
-    (throw (ex-info (str "Unknown resource '" resource "'."
-                         " Supported resources: " (str/join ", " (sort (map name resources))))
-                    {:resource resource
-                     :supported (sort (map name resources))}))))
+(def resource-schema
+  {;;:markets schema/Markets
+   ;;:transactions schema/Transactions
+   })
 
-;; http :3000/api/2023/markets 'Authorization: Token \\xaebdb9fbf7db40fb83463aeb3d480c5729aac12998a74058620c295704f40862'
-(defmethod ig/init-key ::get-resource [_ {:keys [logger db]}]
-  (fn [{{:keys [context resource]} :path-params
+(defn validate-resource!
+  ([resource]
+   (when-not (contains? resources (keyword resource))
+     (throw (ex-info (str "Unknown resource '" resource "'."
+                          " Supported resources: " (str/join ", " (sort (map name resources))))
+                     {:resource resource
+                      :supported (sort (map name resources))}))))
+  ([resource payload]
+   (validate-resource! resource)
+   (when-not (m/validate (resource-schema (keyword resource)) payload)
+     (->> payload
+          (m/explain (resource-schema (keyword resource)))
+          me/humanize
+          (hash-map :error)
+          (ex-info (str "Invalid payload"))
+          throw))))
+
+(defmethod ig/init-key ::get-ships [_ {:keys [logger db]}]
+  (fn [{{:keys [context]} :path-params
         {:keys [waypoint system]} :query-params
         :as req}]
-    (valid-resource? resource)
+    (let [result (db/find-ships db context)]
+      {:status 200 :body (map :payload result)})))
+
+(defmethod ig/init-key ::get-markets [_ {:keys [logger db]}]
+  (fn [{{:keys [context]} :path-params
+        {:keys [waypoint system]} :query-params
+        :as req}]
     (let [result (db/find-markets db context)]
       {:status 200 :body (map :payload result)})))
-;; [::response/ok {:everything "ok"}]))
 
-;; http ":3000/api/2023/markets?validAt=2023-03-09T12:42:12.123Z" a=b c=d
-(defmethod ig/init-key ::post-resource [_ {:keys [logger db]}]
-  (fn [{{:keys [context resource]} :path-params
-        {:keys [validAt]} :params
-        :keys [body-params]
+(defmethod ig/init-key ::get-offers [_ {:keys [logger db]}]
+  (fn [{{:keys [context]} :path-params
+        {:keys [waypoint system]} :query-params
         :as req}]
-    (binding [db/*logger* logger]
-      (let [record (db/create-market db context validAt (-> req :identity :symbol) body-params)]
-        {:status 200 :body record}))))
+    (let [result (db/find-markets db context)]
+      {:status 200 :body (map :payload result)})))
+
+(defmethod ig/init-key ::get-demands [_ {:keys [logger db]}]
+  (fn [{{:keys [context]} :path-params
+        {:keys [waypoint system]} :query-params
+        :as req}]
+    (let [result (db/find-markets db context)]
+      {:status 200 :body (map :payload result)})))
+
+;; TODO: this would look much nicer with specter
+(defn lint-market [market]
+  (-> market
+      (dissoc :transactions)
+      (update :imports (partial map #(dissoc % :name :description)))
+      (update :exports (partial map #(dissoc % :name :description)))
+      (update :exchange (partial map #(dissoc % :name :description)))))
+
+(defn lint-ship [ship]
+  (-> ship
+      (update :cooldown dissoc
+              :shipSymbol
+              :remainingSeconds)
+      (update :engine dissoc
+              :name
+              :description
+              :speed
+              :requirements)
+      (update :frame dissoc
+              :name
+              :description
+              :moduleSlots
+              :mountingPoints
+              :fuelCapacity
+              :requirements)
+      (update :reactor dissoc
+              :name
+              :description
+              :powerOutput
+              :requirements)
+      (update :mounts (partial map #(dissoc %
+                                            :name
+                                            :description
+                                            :strength
+                                            :requirements)))
+      (update :modules (partial map #(dissoc %
+                                             :name
+                                             :description
+                                             :capacity
+                                             :requirements)))))
+
+(defmethod ig/init-key ::post-markets [_ {:keys [logger db]}]
+  (fn [{{:keys [context]} :path-params
+        {:keys [validAt]} :params
+        :keys [body-params] :as req}]
+    (future
+      (let [reporter (-> req :identity :symbol)
+            transactions (->> body-params (map :transactions) flatten (remove nil?))
+            markets (map lint-market body-params)]
+        (doseq [market markets]
+          (db/create-market db context validAt reporter market))
+        (doseq [transaction transactions]
+          (db/create-transaction db context reporter transaction))))
+    {:status 201}))
+
+(defmethod ig/init-key ::post-transactions [_ {:keys [logger db]}]
+  (fn [{{:keys [context]} :path-params
+        :keys [body-params] :as req}]
+    (future
+      (let [reporter (-> req :identity :symbol)]
+        (doseq [transaction body-params]
+          (db/create-transaction db context reporter transaction))))
+    {:status 201}))
+
+(defmethod ig/init-key ::post-ships [_ {:keys [logger db]}]
+  (fn [{{:keys [context]} :path-params
+        {:keys [validAt]} :params
+        :keys [body-params] :as req}]
+    (future
+      (let [reporter (-> req :identity :symbol)]
+        (doseq [ship (map lint-ship body-params)]
+          (db/create-ship db context reporter ship)
+          (db/update-ship-projection db context reporter ship))))
+    {:status 201}))
